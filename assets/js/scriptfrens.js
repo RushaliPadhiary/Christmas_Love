@@ -1,0 +1,669 @@
+document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('canvas-container');
+            const loading = document.getElementById('loading');
+            const elfContainer = document.getElementById('elf-container');
+            const messageBox = document.getElementById('message-box');
+            const overlay = document.getElementById('overlay');
+            const closeMessageBtn = document.getElementById('close-message');
+            
+            // Scene
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            // Camera - fixed, no zoom
+            const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, 5, 15);
+            
+            // Renderer with performance optimizations
+            const renderer = new THREE.WebGLRenderer({ 
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = false; // Disable shadows for performance
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
+            container.appendChild(renderer.domElement);
+            
+            // Smooth rotation control - FIXED LAG
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+            
+            renderer.domElement.addEventListener('mousedown', function(e) {
+                isDragging = true;
+                previousMousePosition = {
+                    x: e.clientX,
+                    y: e.clientY
+                };
+            });
+            
+            renderer.domElement.addEventListener('mousemove', function(e) {
+                if (!isDragging) return;
+                
+                const deltaX = e.clientX - previousMousePosition.x;
+                const deltaY = e.clientY - previousMousePosition.y;
+                
+                // Smooth rotation with requestAnimationFrame
+                requestAnimationFrame(() => {
+                    scene.rotation.y += deltaX * 0.005;
+                    scene.rotation.x += deltaY * 0.005;
+                });
+                
+                previousMousePosition = {
+                    x: e.clientX,
+                    y: e.clientY
+                };
+            });
+            
+            renderer.domElement.addEventListener('mouseup', function() {
+                isDragging = false;
+            });
+            
+            // Touch controls with improved performance
+            renderer.domElement.addEventListener('touchstart', function(e) {
+                e.preventDefault();
+                isDragging = true;
+                if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    previousMousePosition = {
+                        x: touch.clientX,
+                        y: touch.clientY
+                    };
+                }
+            });
+            
+            renderer.domElement.addEventListener('touchmove', function(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - previousMousePosition.x;
+                    const deltaY = touch.clientY - previousMousePosition.y;
+                    
+                    requestAnimationFrame(() => {
+                        scene.rotation.y += deltaX * 0.005;
+                        scene.rotation.x += deltaY * 0.005;
+                    });
+                    
+                    previousMousePosition = {
+                        x: touch.clientX,
+                        y: touch.clientY
+                    };
+                }
+            });
+            
+            renderer.domElement.addEventListener('touchend', function(e) {
+                e.preventDefault();
+                isDragging = false;
+            });
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x333333, 0.4);
+            scene.add(ambientLight);
+            
+            const mainLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            mainLight.position.set(10, 20, 10);
+            scene.add(mainLight);
+            
+            // Variables
+            let treeParticles = null;
+            let redBalls = [];
+            let fairyLights = [];
+            let lightsOn = true;
+            let star = null;
+            let snowParticles = null;
+            let snowEnabled = false;
+            let treeParticleCount = 20000; // Optimized particle count
+            
+            // Create wide bushy particle tree
+            function createParticleTree() {
+                const particleCount = treeParticleCount;
+                const positions = new Float32Array(particleCount * 3);
+                const colors = new Float32Array(particleCount * 3);
+                
+                // Wider tree dimensions
+                const treeHeight = 10;
+                const baseRadius = 5.5;
+                const topRadius = 0.3;
+                
+                for (let i = 0; i < particleCount; i++) {
+                    // Create particles mostly on the SURFACE of the cone
+                    const y = Math.random() * treeHeight;
+                    
+                    // Radius at this height - wider profile
+                    const radiusAtHeight = baseRadius * (1 - y/treeHeight) + topRadius * (y/treeHeight);
+                    
+                    // Make the tree denser - more particles near the surface
+                    let distanceFromCenter;
+                    if (Math.random() > 0.15) { // 85% on surface
+                        // Surface particles with some variation for bushiness
+                        distanceFromCenter = radiusAtHeight * (0.8 + Math.random() * 0.2);
+                    } else { // 15% inside for depth
+                        distanceFromCenter = Math.random() * radiusAtHeight * 0.5;
+                    }
+                    
+                    const angle = Math.random() * Math.PI * 2;
+                    
+                    // Add some random offset for bushiness
+                    const offset = (Math.random() - 0.5) * 0.15;
+                    const x = Math.cos(angle) * (distanceFromCenter + offset);
+                    const z = Math.sin(angle) * (distanceFromCenter + offset);
+                    
+                    positions[i * 3] = x;
+                    positions[i * 3 + 1] = y;
+                    positions[i * 3 + 2] = z;
+                    
+                    // SUPER DARK GREEN colors with variation
+                    const darkGreenBase = 0.03 + Math.random() * 0.08; // Very dark
+                    const red = 0.01 + Math.random() * 0.02; // Almost black red
+                    const green = darkGreenBase + (y/treeHeight) * 0.12; // Dark green gradient
+                    const blue = 0.01 + Math.random() * 0.02; // Almost black blue
+                    
+                    colors[i * 3] = red;
+                    colors[i * 3 + 1] = green;
+                    colors[i * 3 + 2] = blue;
+                }
+                
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                
+                // SIGNIFICANTLY INCREASED PARTICLE SIZE TO 1.5
+                const material = new THREE.PointsMaterial({
+                    size: 1.5, // MUCH LARGER SIZE
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.97,
+                    sizeAttenuation: false // Better performance
+                });
+                
+                treeParticles = new THREE.Points(geometry, material);
+                scene.add(treeParticles);
+            }
+            
+            // Create LOTS of bright red glistening bells
+            function createRedBalls(count = 80) { // SIGNIFICANTLY INCREASED COUNT
+                // Clear existing balls
+                redBalls.forEach(ball => {
+                    if (ball.mesh) scene.remove(ball.mesh);
+                    if (ball.light) scene.remove(ball.light);
+                });
+                redBalls = [];
+                
+                for (let i = 0; i < count; i++) {
+                    // Height distribution - more at bottom
+                    const heightFactor = Math.pow(Math.random(), 1.8);
+                    const y = 0.8 + heightFactor * 8.5;
+                    
+                    // Position ON SURFACE with proper offset
+                    const angle = Math.random() * Math.PI * 2;
+                    const radiusAtHeight = 5.3 * (1 - y/10) + 0.3 * (y/10);
+                    
+                    // Place on surface with outward offset
+                    const surfaceOffset = 0.12 + Math.random() * 0.08;
+                    const x = Math.cos(angle) * (radiusAtHeight + surfaceOffset);
+                    const z = Math.sin(angle) * (radiusAtHeight + surfaceOffset);
+                    
+                    // Create ball with bright glistening material
+                    const ballSize = 0.18 + Math.random() * 0.07;
+                    const geometry = new THREE.SphereGeometry(ballSize, 16, 16); // Reduced segments for performance
+                    const material = new THREE.MeshStandardMaterial({
+                        color: 0xff3333, // Bright red
+                        metalness: 0.9,
+                        roughness: 0.1,
+                        emissive: 0x660000,
+                        emissiveIntensity: 0.6
+                    });
+                    
+                    const ball = new THREE.Mesh(geometry, material);
+                    ball.position.set(x, y, z);
+                    
+                    // Add a bright point light to each ball
+                    const ballLight = new THREE.PointLight(0xff3333, 0.6, 2.5);
+                    ballLight.position.copy(ball.position);
+                    
+                    scene.add(ball);
+                    scene.add(ballLight);
+                    redBalls.push({mesh: ball, light: ballLight});
+                }
+            }
+            
+            // Create yellow twinkling fairy lights
+            function createFairyLights(count = 60) {
+                // Clear existing lights
+                fairyLights.forEach(light => {
+                    if (light.bulb) scene.remove(light.bulb);
+                    if (light.light) scene.remove(light.light);
+                });
+                fairyLights = [];
+                
+                for (let i = 0; i < count; i++) {
+                    // Height distribution
+                    const heightFactor = Math.pow(Math.random(), 1.5);
+                    const y = 0.4 + heightFactor * 9;
+                    
+                    // Position ON SURFACE
+                    const angle = Math.random() * Math.PI * 2;
+                    const radiusAtHeight = 5.1 * (1 - y/10) + 0.3 * (y/10);
+                    
+                    const surfaceOffset = 0.15 + Math.random() * 0.1;
+                    const x = Math.cos(angle) * (radiusAtHeight + surfaceOffset);
+                    const z = Math.sin(angle) * (radiusAtHeight + surfaceOffset);
+                    
+                    // Create YELLOW bulb
+                    const bulbSize = 0.1 + Math.random() * 0.05;
+                    const bulbGeometry = new THREE.SphereGeometry(bulbSize, 12, 12); // Reduced segments
+                    const bulbMaterial = new THREE.MeshStandardMaterial({
+                        color: 0xffff00, // YELLOW
+                        emissive: 0xffff00,
+                        emissiveIntensity: 0.9,
+                        metalness: 0.8,
+                        roughness: 0.2
+                    });
+                    
+                    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+                    bulb.position.set(x, y, z);
+                    
+                    // Bright YELLOW light with stronger intensity
+                    const pointLight = new THREE.PointLight(0xffff00, 1.1, 3);
+                    pointLight.position.set(x, y, z);
+                    
+                    scene.add(bulb);
+                    scene.add(pointLight);
+                    
+                    fairyLights.push({
+                        bulb: bulb,
+                        light: pointLight,
+                        originalPos: new THREE.Vector3(x, y, z),
+                        pulseSpeed: 3 + Math.random() * 4,
+                        twinkleOffset: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+            
+            // Create SINGLE UPRIGHT 3D STAR (standing erect)
+            function createStar() {
+                if (star) {
+                    scene.remove(star.mesh);
+                    scene.remove(star.light);
+                }
+                
+                // Create a single proper 3D star that stands upright
+                const starGroup = new THREE.Group();
+                
+                // Create a proper 3D star using a single mesh
+                // Use a star geometry that points upward
+                const starShape = new THREE.Shape();
+                
+                // Create star points
+                const numPoints = 5;
+                const innerRadius = 0.4;
+                const outerRadius = 0.9;
+                
+                for (let i = 0; i < numPoints * 2; i++) {
+                    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                    const angle = (i * Math.PI) / numPoints;
+                    
+                    const x = radius * Math.cos(angle);
+                    const y = radius * Math.sin(angle);
+                    
+                    if (i === 0) {
+                        starShape.moveTo(x, y);
+                    } else {
+                        starShape.lineTo(x, y);
+                    }
+                }
+                
+                starShape.closePath();
+                
+                // Extrude the star to make it 3D and upright
+                const extrudeSettings = {
+                    depth: 0.3,
+                    bevelEnabled: true,
+                    bevelThickness: 0.05,
+                    bevelSize: 0.05,
+                    bevelSegments: 3
+                };
+                
+                const starGeometry = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
+                
+                // FIX: THE STAR IS CURRENTLY LYING FLAT. WE NEED TO ROTATE IT 90 DEGREES TO STAND UP.
+                // The star is extruded in the Z direction by default (lying flat on XY plane).
+                // We need to rotate it -90 degrees around the X axis to make it stand up.
+                starGeometry.rotateX(-Math.PI / 2);
+                
+                const starMaterial = new THREE.MeshPhysicalMaterial({
+                    color: 0xffd700,
+                    metalness: 0.9,
+                    roughness: 0.15,
+                    emissive: 0xffaa00,
+                    emissiveIntensity: 0.6,
+                    clearcoat: 1,
+                    clearcoatRoughness: 0.1
+                });
+                
+                const starMesh = new THREE.Mesh(starGeometry, starMaterial);
+                starMesh.position.y = 10.5; // Top of tree
+                
+                // ALTERNATIVE FIX: If the geometry rotation isn't working, rotate the mesh itself
+                starMesh.rotation.x = -Math.PI / 2; // Rotate 90 degrees to stand upright
+                
+                starGroup.add(starMesh);
+                
+                // Add strong glow light
+                const starLight = new THREE.PointLight(0xffd700, 2, 15);
+                starLight.position.y = 10.5;
+                
+                scene.add(starGroup);
+                scene.add(starLight);
+                
+                star = { mesh: starGroup, light: starLight };
+            }
+            
+            // Create SIMPLE snow particles (like before - no snowflake texture)
+            function createSnow() {
+                const snowCount = 1000; // Reduced count for performance
+                const positions = new Float32Array(snowCount * 3);
+                
+                for (let i = 0; i < snowCount * 3; i += 3) {
+                    positions[i] = (Math.random() - 0.5) * 40;
+                    positions[i + 1] = Math.random() * 25;
+                    positions[i + 2] = (Math.random() - 0.5) * 40;
+                }
+                
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                // SIMPLE snow material (like before)
+                const material = new THREE.PointsMaterial({
+                    size: 0.1,
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.8,
+                    blending: THREE.AdditiveBlending
+                });
+                
+                snowParticles = new THREE.Points(geometry, material);
+                snowParticles.userData = {
+                    velocities: new Float32Array(snowCount * 3)
+                };
+                
+                for (let i = 0; i < snowCount * 3; i += 3) {
+                    snowParticles.userData.velocities[i] = (Math.random() - 0.5) * 0.015;
+                    snowParticles.userData.velocities[i + 1] = -0.03 - Math.random() * 0.04;
+                    snowParticles.userData.velocities[i + 2] = (Math.random() - 0.5) * 0.015;
+                }
+                
+                scene.add(snowParticles);
+            }
+            
+            // Add single red ball
+            function addRedBallAtPosition(x, y, z) {
+                const ballSize = 0.18 + Math.random() * 0.07;
+                const geometry = new THREE.SphereGeometry(ballSize, 16, 16);
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0xff3333,
+                    metalness: 0.9,
+                    roughness: 0.1,
+                    emissive: 0x660000,
+                    emissiveIntensity: 0.6
+                });
+                
+                const ball = new THREE.Mesh(geometry, material);
+                ball.position.set(x, y, z);
+                
+                const ballLight = new THREE.PointLight(0xff3333, 0.6, 2.5);
+                ballLight.position.copy(ball.position);
+                
+                scene.add(ball);
+                scene.add(ballLight);
+                redBalls.push({mesh: ball, light: ballLight});
+                return ball;
+            }
+            
+            // Add single fairy light
+            function addFairyLightAtPosition(x, y, z) {
+                const bulbSize = 0.1 + Math.random() * 0.05;
+                const bulbGeometry = new THREE.SphereGeometry(bulbSize, 12, 12);
+                const bulbMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xffff00,
+                    emissive: 0xffff00,
+                    emissiveIntensity: 0.9,
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+                
+                const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+                bulb.position.set(x, y, z);
+                
+                const pointLight = new THREE.PointLight(0xffff00, 1.1, 3);
+                pointLight.position.set(x, y, z);
+                
+                scene.add(bulb);
+                scene.add(pointLight);
+                
+                const lightObj = {
+                    bulb: bulb,
+                    light: pointLight,
+                    originalPos: new THREE.Vector3(x, y, z),
+                    pulseSpeed: 3 + Math.random() * 4,
+                    twinkleOffset: Math.random() * Math.PI * 2
+                };
+                
+                fairyLights.push(lightObj);
+                return lightObj;
+            }
+            
+            // Elf interaction functions
+            function showChristmasMessage() {
+                overlay.classList.add('show');
+                messageBox.classList.add('show');
+                
+                // Add some Christmas sound effect
+                playChristmasSound();
+            }
+            
+            function playChristmasSound() {
+                // Create a simple bell sound
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(400, audioContext.currentTime + 0.5);
+                    
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                } catch (e) {
+                    console.log("Audio not supported or user hasn't interacted with page yet");
+                }
+            }
+            
+            // Initialize everything
+            function init() {
+                createParticleTree();
+                createRedBalls(80); // START WITH 80 BELLS
+                createFairyLights(60);
+                createStar(); // This now creates a single upright star
+                
+                loading.style.display = 'none';
+            }
+            
+            // Animation loop - OPTIMIZED
+            let lastTime = 0;
+            
+            function animate(time) {
+                requestAnimationFrame(animate);
+                
+                const deltaTime = time - lastTime;
+                lastTime = time;
+                
+                // Animate fairy lights (yellow twinkling)
+                if (lightsOn) {
+                    fairyLights.forEach(light => {
+                        const twinkle = 0.6 + 0.4 * Math.sin(time * 0.002 * light.pulseSpeed + light.twinkleOffset);
+                        light.light.intensity = twinkle * 1.1;
+                        light.bulb.material.emissiveIntensity = twinkle * 0.9;
+                        
+                        // Gentle floating motion
+                        const float = Math.sin(time * 0.001 + light.originalPos.y) * 0.08;
+                        light.bulb.position.y = light.originalPos.y + float;
+                        light.light.position.y = light.bulb.position.y;
+                        
+                        // Twinkling rotation
+                        light.bulb.rotation.y += 0.015;
+                    });
+                }
+                
+                // Animate red balls (glistening) - OPTIMIZED: only animate some each frame
+                const ballsToAnimate = Math.min(20, redBalls.length);
+                for (let i = 0; i < ballsToAnimate; i++) {
+                    const ball = redBalls[Math.floor((time * 0.01 + i) % redBalls.length)];
+                    ball.mesh.rotation.y += 0.006;
+                    const glisten = 0.5 + 0.3 * Math.sin(time * 0.001 + i);
+                    ball.mesh.material.emissiveIntensity = glisten * 0.6;
+                    ball.light.intensity = glisten * 0.6;
+                }
+                
+                // Animate star - WITHOUT ROTATION
+                if (star) {
+                    // REMOVED: star.mesh.rotation.y += 0.008;
+                    const starPulse = 0.8 + 0.4 * Math.sin(time * 0.0005);
+                    star.light.intensity = starPulse * 1.5;
+                }
+                
+                // Animate snow
+                if (snowEnabled && snowParticles) {
+                    const positions = snowParticles.geometry.attributes.position.array;
+                    const velocities = snowParticles.userData.velocities;
+                    
+                    for (let i = 0; i < positions.length; i += 3) {
+                        positions[i] += velocities[i];
+                        positions[i + 1] += velocities[i + 1];
+                        positions[i + 2] += velocities[i + 2];
+                        
+                        // Reset if fallen below
+                        if (positions[i + 1] < -3) {
+                            positions[i] = (Math.random() - 0.5) * 40;
+                            positions[i + 1] = 25;
+                            positions[i + 2] = (Math.random() - 0.5) * 40;
+                        }
+                    }
+                    
+                    snowParticles.geometry.attributes.position.needsUpdate = true;
+                }
+                
+                // Very slow auto-rotation
+                scene.rotation.y += 0.0001;
+                
+                renderer.render(scene, camera);
+            }
+            
+            // Handle window resize
+            function onWindowResize() {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            }
+            
+            window.addEventListener('resize', onWindowResize);
+            
+            // Control button handlers
+            document.getElementById('toggle-lights').addEventListener('click', function() {
+                lightsOn = !lightsOn;
+                
+                fairyLights.forEach(light => {
+                    light.bulb.visible = lightsOn;
+                    light.light.visible = lightsOn;
+                });
+                
+                this.textContent = lightsOn ? '✨ Lights ON' : '✨ Lights OFF';
+            });
+            
+            document.getElementById('reset-tree').addEventListener('click', function() {
+                scene.rotation.x = 0;
+                scene.rotation.y = 0;
+                scene.rotation.z = 0;
+            });
+            
+            document.getElementById('snow-effect').addEventListener('click', function() {
+                snowEnabled = !snowEnabled;
+                
+                if (snowEnabled) {
+                    if (!snowParticles) {
+                        createSnow();
+                    } else {
+                        snowParticles.visible = true;
+                    }
+                    this.textContent = '❄️ Snow ON';
+                } else {
+                    if (snowParticles) {
+                        snowParticles.visible = false;
+                    }
+                    this.textContent = '❄️ Snow OFF';
+                }
+            });
+            
+            document.getElementById('add-bells').addEventListener('click', function() {
+                // Add 5 MORE red balls
+                for (let i = 0; i < 5; i++) {
+                    const y = 0.8 + Math.random() * 8.5;
+                    const angle = Math.random() * Math.PI * 2;
+                    const radiusAtHeight = 5.3 * (1 - y/10) + 0.3 * (y/10);
+                    
+                    const x = Math.cos(angle) * (radiusAtHeight + 0.12);
+                    const z = Math.sin(angle) * (radiusAtHeight + 0.12);
+                    
+                    addRedBallAtPosition(x, y, z);
+                }
+            });
+            
+            // Elf click handler
+            elfContainer.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent tree decoration click
+                showChristmasMessage();
+            });
+            
+            // Close message handler
+            closeMessageBtn.addEventListener('click', function() {
+                overlay.classList.remove('show');
+                messageBox.classList.remove('show');
+            });
+            
+            // Click to add decorations - IMPROVED PERFORMANCE
+            renderer.domElement.addEventListener('click', function(e) {
+                // Don't add decorations if clicking on controls or elf
+                if (e.target.closest('#controls') || e.target.closest('#elf-container')) {
+                    return;
+                }
+                
+                // Get random position on tree surface
+                const y = 0.8 + Math.random() * 8.5;
+                const angle = Math.random() * Math.PI * 2;
+                const radiusAtHeight = 5.3 * (1 - y/10) + 0.3 * (y/10);
+                
+                // Random decoration type
+                const decType = Math.random();
+                
+                if (decType < 0.6) { // 60% chance for red ball (MORE BELLS!)
+                    const x = Math.cos(angle) * (radiusAtHeight + 0.12);
+                    const z = Math.sin(angle) * (radiusAtHeight + 0.12);
+                    addRedBallAtPosition(x, y, z);
+                } else { // 40% chance for fairy light
+                    const x = Math.cos(angle) * (radiusAtHeight + 0.15);
+                    const z = Math.sin(angle) * (radiusAtHeight + 0.15);
+                    addFairyLightAtPosition(x, y, z);
+                }
+            });
+            
+            // Initialize and start
+            init();
+            animate(0);
+        });
