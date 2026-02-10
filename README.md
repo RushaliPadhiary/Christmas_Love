@@ -1,5 +1,5 @@
 <h2>🎄 Christmas Magic - Interactive 3D Tree</h2>
-<br>
+<video src="https://github.com/user-attachments/assets/c4389402-d41e-421e-9ef1-cce934f65e5c" controls="controls"></video>
 <p>A magical, interactive Christmas tree built with Three.js that I created to spread holiday cheer to my loved ones! This project features two special versions - one for your partner with personal touches, and another for friends and family.</p>
 
 ✨ Features of the 🎁 Interactive 3D Christmas Tree:
